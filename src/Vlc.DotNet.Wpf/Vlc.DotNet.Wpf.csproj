@@ -6,6 +6,7 @@
     <TargetFrameworks>net35;net40;net45</TargetFrameworks>
     <Description>WPF control that hosts the audio/video capabilities of the VLC libraries.</Description>
     <PackageTags>vlc media wpf</PackageTags>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
