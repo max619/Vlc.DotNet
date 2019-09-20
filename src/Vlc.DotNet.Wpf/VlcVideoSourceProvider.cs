@@ -22,6 +22,8 @@ namespace Vlc.DotNet.Wpf
     /// </summary>
     public class VlcVideoSourceProvider : INotifyPropertyChanged, IDisposable
     {
+        public event EventHandler FramePulse;
+
 #if NET45
         /// <summary>
         /// The memory mapped file that contains the picture data
@@ -49,6 +51,11 @@ namespace Vlc.DotNet.Wpf
         private ImageSource videoSource;
 
         private Dispatcher dispatcher;
+
+        private uint c_width;
+        private uint c_height;
+        private PixelFormat c_pixfmt;
+        private uint c_pitches;
 
         public VlcVideoSourceProvider(Dispatcher dispatcher)
         {
@@ -172,37 +179,62 @@ namespace Vlc.DotNet.Wpf
             lines = this.GetAlignedDimension(height, 32);
 
             var size = pitches * lines;
-#if NET45
-            this.memoryMappedFile = MemoryMappedFile.CreateNew(null, size);
-            var handle = this.memoryMappedFile.SafeMemoryMappedFileHandle.DangerousGetHandle();
-#else
-            this.memoryMappedFile = Win32Interop.CreateFileMapping(new IntPtr(-1), IntPtr.Zero,
-                Win32Interop.PageAccess.ReadWrite, 0, (int)size, null);
-            var handle = this.memoryMappedFile;
-#endif
-            var args = new
-            {
-                width = width,
-                height = height,
-                pixelFormat = pixelFormat,
-                pitches = pitches
-            };
 
-            this.dispatcher.Invoke((Action)(() =>
+            if (videoSource == null ||
+                c_width != width || c_height != height ||
+                c_pixfmt != pixelFormat || c_pitches != pitches)
             {
-                this.VideoSource = (InteropBitmap)Imaging.CreateBitmapSourceFromMemorySection(handle,
-                    (int)args.width, (int)args.height, args.pixelFormat, (int)args.pitches, 0);
-            }));
+#if NET45
+                this.memoryMappedFile = MemoryMappedFile.CreateNew(null, size);
+                
+var handle = this.memoryMappedFile.SafeMemoryMappedFileHandle.DangerousGetHandle();
+#else
+                this.memoryMappedFile = Win32Interop.CreateFileMapping(new IntPtr(-1), IntPtr.Zero,
+                    Win32Interop.PageAccess.ReadWrite, 0, (int)size, null);
+                var handle = this.memoryMappedFile;
+#endif
+                var args = new
+                {
+                    width = width,
+                    height = height,
+                    pixelFormat = pixelFormat,
+                    pitches = pitches
+                };
+
+                c_width = args.width;
+                c_height = args.height;
+                c_pixfmt = args.pixelFormat;
+                c_pitches = args.pitches;
+
+                this.dispatcher.Invoke((Action)(() =>
+                {
+                    this.VideoSource = (InteropBitmap)Imaging.CreateBitmapSourceFromMemorySection(handle,
+                        (int)args.width, (int)args.height, args.pixelFormat, (int)args.pitches, 0);
+                }), System.Windows.Threading.DispatcherPriority.Render);
 
 #if NET45
-            this.memoryMappedView = this.memoryMappedFile.CreateViewAccessor();
-            var viewHandle = this.memoryMappedView.SafeMemoryMappedViewHandle.DangerousGetHandle();
+                this.memoryMappedView = this.memoryMappedFile.CreateViewAccessor();
+                var viewHandle = this.memoryMappedView.SafeMemoryMappedViewHandle.DangerousGetHandle();
 #else
-            this.memoryMappedView = Win32Interop.MapViewOfFile(this.memoryMappedFile, Win32Interop.FileMapAccess.AllAccess, 0, 0, size);
-            var viewHandle = this.memoryMappedView;
+                this.memoryMappedView = Win32Interop.MapViewOfFile(this.memoryMappedFile, Win32Interop.FileMapAccess.AllAccess, 0, 0, size);
+                var viewHandle = this.memoryMappedView;
 #endif
-            userdata = viewHandle;
-            return 1;
+                userdata = viewHandle;
+                return 1;
+            }
+            else
+            {
+#if NET45
+                this.memoryMappedView = this.memoryMappedFile.CreateViewAccessor();
+                var viewHandle = this.memoryMappedView.SafeMemoryMappedViewHandle.DangerousGetHandle();
+#else
+                this.memoryMappedView = Win32Interop.MapViewOfFile(this.memoryMappedFile, Win32Interop.FileMapAccess.AllAccess, 0, 0, size);
+                var viewHandle = this.memoryMappedView;
+#endif
+
+                userdata = viewHandle;
+                return 1;
+            }
         }
 
         /// <summary>
@@ -241,6 +273,7 @@ namespace Vlc.DotNet.Wpf
             this.dispatcher.BeginInvoke((Action)(() =>
             {
                 (this.VideoSource as InteropBitmap)?.Invalidate();
+                FramePulse?.Invoke(this, new EventArgs());
             }));
         }
         #endregion
